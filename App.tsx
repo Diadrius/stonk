@@ -4,11 +4,23 @@ import type { StockData, AnalysisResult } from './types';
 
 // --- Helper Components (Defined outside the main App component to prevent re-creation on re-renders) ---
 
-const StatCard: React.FC<{ label: string; value: string; colorClass: string }> = ({ label, value, colorClass }) => (
-  <div className="bg-gray-800/50 p-6 rounded-lg text-center transform hover:scale-105 transition-transform duration-300">
-    <p className="text-sm text-gray-400 uppercase tracking-wider mb-2">{label}</p>
-    <p className={`text-3xl lg:text-4xl font-bold ${colorClass}`}>{value}</p>
-  </div>
+const StatCard: React.FC<{ label: string; value: string; colorClass: string; tooltip?: string }> = ({ label, value, colorClass, tooltip }) => (
+    <div className="bg-gray-800/50 p-6 rounded-lg text-center transform hover:scale-105 transition-transform duration-300">
+        <div className="flex items-center justify-center gap-2 mb-2">
+            <p className="text-sm text-gray-400 uppercase tracking-wider">{label}</p>
+            {tooltip && (
+                <div className="relative group">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-500 cursor-pointer" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                    <div className="absolute bottom-full mb-2 w-64 bg-gray-900 text-white text-sm rounded-lg p-3 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                        {tooltip}
+                    </div>
+                </div>
+            )}
+        </div>
+        <p className={`text-3xl lg:text-4xl font-bold ${colorClass}`}>{value}</p>
+    </div>
 );
 
 const LoadingSpinner: React.FC = () => (
@@ -271,27 +283,18 @@ const App: React.FC = () => {
 
              {error && <div className="text-center text-red-400 bg-red-900/20 p-4 rounded-lg mb-8">{error}</div>}
 
-                {results && (
+               {results && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 animate-fade-in">
-                       <StatCard 
-                           label="Profitable Periods" 
+                       <StatCard
+                           label="Chance of Profit*"
                            value={formatPercent(results.profitablePercentage)}
-                           colorClass="text-cyan-400" 
+                           colorClass="text-cyan-400"
+                           tooltip="Based on historical data. Past performance is not an indicator of future results."
                        />
                        <StatCard 
                            label="Average Return" 
                            value={formatPercent(results.averageReturn)}
                            colorClass={results.averageReturn > 0 ? 'text-green-400' : 'text-red-400'}
-                       />
-                       <StatCard 
-                           label="Best Return" 
-                           value={formatPercent(results.bestReturn)}
-                           colorClass="text-green-400"
-                       />
-                        <StatCard 
-                           label="Worst Return" 
-                           value={formatPercent(results.worstReturn)}
-                           colorClass="text-red-400"
                        />
                       <div className="sm:col-span-2 lg:col-span-1">
                         <StatCard 
@@ -312,6 +315,7 @@ const App: React.FC = () => {
           )}
         </div>
         <footer className="text-center mt-8 text-gray-600 text-sm">
+          <p className="mb-1">*Calculations are based on historical S&P 500 data and do not guarantee future returns.</p>
           <p>Data analysis is for informational purposes only and does not constitute financial advice.</p>
         </footer>
       </div>
