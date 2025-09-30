@@ -1,0 +1,5 @@
+
+{
+  "name": "S&P 500 Historical Return Analyzer",
+  "description": "An application to analyze the historical returns of the S&P 500 based on different holding periods, using historical stock data from a CSV file."
+}
