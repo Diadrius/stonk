@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import type { StockData, AnalysisResult } from './types';
+import type { StockData, AnalysisResult, ConeDataPoint } from './types';
 
 // --- Helper Components (Defined outside the main App component to prevent re-creation on re-renders) ---
 
@@ -65,6 +65,184 @@ const ReturnsChart: React.FC<{ results: AnalysisResult }> = ({ results }) => {
                 <Bar value={worstReturn} rawValue={worstReturn} maxValue={maxVal} colorClass="bg-red-500" label="Worst" />
                 <Bar value={averageReturn} rawValue={averageReturn} maxValue={maxVal} colorClass={averageReturn > 0 ? "bg-green-500" : "bg-red-500"} label="Average" />
                 <Bar value={bestReturn} rawValue={bestReturn} maxValue={maxVal} colorClass="bg-green-500" label="Best" />
+            </div>
+        </div>
+    );
+};
+
+const ConeOfCertainty: React.FC<{ coneData: ConeDataPoint[]; holdingPeriodYears: number }> = ({ coneData, holdingPeriodYears }) => {
+    if (!coneData || coneData.length === 0) return null;
+
+    const width = 800;
+    const height = 400;
+    const padding = { top: 40, right: 60, bottom: 60, left: 80 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+
+    // Find min/max for y-axis scaling
+    const allValues = coneData.flatMap(d => [d.p10, d.p90]);
+    const minReturn = Math.min(...allValues, 0);
+    const maxReturn = Math.max(...allValues, 0);
+    const yRange = maxReturn - minReturn;
+    const yPadding = yRange * 0.1;
+
+    const scaleX = (timePoint: number) => padding.left + (timePoint * chartWidth);
+    const scaleY = (returnValue: number) => padding.top + chartHeight - ((returnValue - minReturn + yPadding) / (yRange + 2 * yPadding)) * chartHeight;
+
+    // Create path strings for percentile bands
+    const createPath = (data: ConeDataPoint[], accessor: (d: ConeDataPoint) => number) => {
+        return data.map((d, i) => {
+            const x = scaleX(d.timePoint);
+            const y = scaleY(accessor(d));
+            return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+        }).join(' ');
+    };
+
+    const createAreaPath = (data: ConeDataPoint[], topAccessor: (d: ConeDataPoint) => number, bottomAccessor: (d: ConeDataPoint) => number) => {
+        const topPath = data.map((d, i) => {
+            const x = scaleX(d.timePoint);
+            const y = scaleY(topAccessor(d));
+            return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+        }).join(' ');
+        
+        const bottomPath = data.slice().reverse().map((d) => {
+            const x = scaleX(d.timePoint);
+            const y = scaleY(bottomAccessor(d));
+            return `L ${x} ${y}`;
+        }).join(' ');
+        
+        return `${topPath} ${bottomPath} Z`;
+    };
+
+    // Y-axis ticks
+    const numYTicks = 6;
+    const yTicks = Array.from({ length: numYTicks }, (_, i) => {
+        const value = minReturn - yPadding + (i / (numYTicks - 1)) * (yRange + 2 * yPadding);
+        return { value, y: scaleY(value) };
+    });
+
+    // X-axis ticks
+    const numXTicks = Math.min(11, holdingPeriodYears + 1);
+    const xTicks = Array.from({ length: numXTicks }, (_, i) => {
+        const timePoint = i / (numXTicks - 1);
+        const years = timePoint * holdingPeriodYears;
+        return { label: years.toFixed(0), x: scaleX(timePoint) };
+    });
+
+    return (
+        <div className="sm:col-span-2 lg:col-span-3 bg-gray-800/50 p-6 rounded-lg">
+            <h3 className="text-lg font-bold text-center mb-2">Cone of Certainty</h3>
+            <p className="text-xs text-gray-400 text-center mb-4">Historical return distribution over time</p>
+            <div className="flex justify-center overflow-x-auto">
+                <svg width={width} height={height} className="mx-auto">
+                    {/* Y-axis grid lines */}
+                    {yTicks.map((tick, i) => (
+                        <g key={i}>
+                            <line
+                                x1={padding.left}
+                                y1={tick.y}
+                                x2={padding.left + chartWidth}
+                                y2={tick.y}
+                                stroke="#374151"
+                                strokeWidth="1"
+                                strokeDasharray={tick.value === 0 ? "0" : "2,2"}
+                                opacity={tick.value === 0 ? "0.8" : "0.3"}
+                            />
+                            <text
+                                x={padding.left - 10}
+                                y={tick.y}
+                                textAnchor="end"
+                                alignmentBaseline="middle"
+                                fill="#9CA3AF"
+                                fontSize="12"
+                            >
+                                {tick.value.toFixed(0)}%
+                            </text>
+                        </g>
+                    ))}
+
+                    {/* X-axis grid lines and labels */}
+                    {xTicks.map((tick, i) => (
+                        <g key={i}>
+                            <line
+                                x1={tick.x}
+                                y1={padding.top}
+                                x2={tick.x}
+                                y2={padding.top + chartHeight}
+                                stroke="#374151"
+                                strokeWidth="1"
+                                strokeDasharray="2,2"
+                                opacity="0.3"
+                            />
+                            <text
+                                x={tick.x}
+                                y={padding.top + chartHeight + 20}
+                                textAnchor="middle"
+                                fill="#9CA3AF"
+                                fontSize="12"
+                            >
+                                {tick.label}
+                            </text>
+                        </g>
+                    ))}
+
+                    {/* Percentile bands (lightest to darkest) */}
+                    {/* 10th-90th percentile (outermost, lightest) */}
+                    <path
+                        d={createAreaPath(coneData, d => d.p90, d => d.p10)}
+                        fill="#06B6D4"
+                        fillOpacity="0.15"
+                    />
+
+                    {/* 25th-75th percentile (middle band) */}
+                    <path
+                        d={createAreaPath(coneData, d => d.p75, d => d.p25)}
+                        fill="#06B6D4"
+                        fillOpacity="0.25"
+                    />
+
+                    {/* Median line (50th percentile) */}
+                    <path
+                        d={createPath(coneData, d => d.p50)}
+                        stroke="#06B6D4"
+                        strokeWidth="2.5"
+                        fill="none"
+                    />
+
+                    {/* Axis labels */}
+                    <text
+                        x={padding.left + chartWidth / 2}
+                        y={height - 10}
+                        textAnchor="middle"
+                        fill="#9CA3AF"
+                        fontSize="14"
+                    >
+                        Time (Years)
+                    </text>
+                    
+                    <text
+                        x={20}
+                        y={padding.top + chartHeight / 2}
+                        textAnchor="middle"
+                        fill="#9CA3AF"
+                        fontSize="14"
+                        transform={`rotate(-90, 20, ${padding.top + chartHeight / 2})`}
+                    >
+                        Return (%)
+                    </text>
+
+                    {/* Legend */}
+                    <g transform={`translate(${width - padding.right - 140}, ${padding.top + 10})`}>
+                        <rect x="0" y="0" width="15" height="10" fill="#06B6D4" fillOpacity="0.15" />
+                        <text x="20" y="9" fill="#9CA3AF" fontSize="11">10-90th %ile</text>
+                        
+                        <rect x="0" y="18" width="15" height="10" fill="#06B6D4" fillOpacity="0.25" />
+                        <text x="20" y="27" fill="#9CA3AF" fontSize="11">25-75th %ile</text>
+                        
+                        <line x1="0" y1="41" x2="15" y2="41" stroke="#06B6D4" strokeWidth="2.5" />
+                        <text x="20" y="45" fill="#9CA3AF" fontSize="11">Median</text>
+                    </g>
+                </svg>
             </div>
         </div>
     );
@@ -201,12 +379,62 @@ const App: React.FC = () => {
       const bestReturn = Math.max(...returns);
       const worstReturn = Math.min(...returns);
 
+      // Calculate cone of certainty data with smart sampling
+      const coneData: ConeDataPoint[] = [];
+      const numTimePoints = Math.min(40, holdingPeriodDays); // Sample at most 40 points
+      const timePointStep = Math.max(1, Math.floor(holdingPeriodDays / numTimePoints));
+      
+      for (let dayOffset = 0; dayOffset <= holdingPeriodDays; dayOffset += timePointStep) {
+        const timePoint = dayOffset / holdingPeriodDays;
+        const partialReturns: number[] = [];
+        
+        // Calculate returns for this intermediate time point from all starting positions
+        // Optimize: sample at most 1000 starting positions if we have too many
+        const maxSamples = 1000;
+        const sampleStep = Math.max(1, Math.floor((stockData.length - holdingPeriodDays) / maxSamples));
+        
+        for (let i = 0; i <= stockData.length - holdingPeriodDays; i += sampleStep) {
+          let buyPrice: number;
+          if (dcaBuy) {
+            const buyWindow = stockData.slice(i, i + dcaBuyDays);
+            buyPrice = buyWindow.reduce((sum, day) => sum + day.close, 0) / buyWindow.length;
+          } else {
+            buyPrice = stockData[i].close;
+          }
+
+          const sellIndex = i + dayOffset;
+          if (sellIndex < stockData.length && buyPrice > 0) {
+            const sellPrice = stockData[sellIndex].close;
+            const returnOnInvestment = ((sellPrice - buyPrice) / buyPrice) * 100;
+            partialReturns.push(returnOnInvestment);
+          }
+        }
+
+        if (partialReturns.length > 0) {
+          partialReturns.sort((a, b) => a - b);
+          const getPercentile = (p: number) => {
+            const index = Math.floor(partialReturns.length * p);
+            return partialReturns[Math.min(index, partialReturns.length - 1)];
+          };
+
+          coneData.push({
+            timePoint,
+            p10: getPercentile(0.10),
+            p25: getPercentile(0.25),
+            p50: getPercentile(0.50),
+            p75: getPercentile(0.75),
+            p90: getPercentile(0.90),
+          });
+        }
+      }
+
       setResults({
         profitablePercentage,
         averageReturn,
         bestReturn,
         worstReturn,
         totalPeriods,
+        coneData,
       });
 
       setIsCalculating(false);
@@ -304,6 +532,9 @@ const App: React.FC = () => {
                          />
                       </div>
                       <ReturnsChart results={results} />
+                      {results.coneData && results.coneData.length > 0 && (
+                        <ConeOfCertainty coneData={results.coneData} holdingPeriodYears={parseInt(holdingPeriod, 10)} />
+                      )}
                     </div>
                 )}
                {!results && !isCalculating &&
